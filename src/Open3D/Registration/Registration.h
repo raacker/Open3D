@@ -127,12 +127,14 @@ RegistrationResult RegistrationRANSACBasedOnCorrespondence(
                 RANSACConvergenceCriteria());
 
 /// Function for global RANSAC registration based on feature matching
-RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
+bool RegistrationRANSACBasedOnFeatureMatching(
         const geometry::PointCloud &source,
         const geometry::PointCloud &target,
         const Feature &source_feature,
         const Feature &target_feature,
         double max_correspondence_distance,
+        const long long timeout,
+        RegistrationResult &result,
         const TransformationEstimation &estimation =
                 TransformationEstimationPointToPoint(false),
         int ransac_n = 4,

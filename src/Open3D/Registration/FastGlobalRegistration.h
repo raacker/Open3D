@@ -77,11 +77,13 @@ public:
     int maximum_tuple_count_;
 };
 
-RegistrationResult FastGlobalRegistration(
+bool FastGlobalRegistration(
         const geometry::PointCloud &source,
         const geometry::PointCloud &target,
         const Feature &source_feature,
         const Feature &target_feature,
+        const long long timeout,
+        RegistrationResult &result,
         const FastGlobalRegistrationOption &option =
                 FastGlobalRegistrationOption());
 

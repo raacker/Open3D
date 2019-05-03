@@ -33,6 +33,7 @@
 #include "Open3D/Geometry/PointCloud.h"
 #include "Open3D/Registration/Feature.h"
 #include "Open3D/Utility/Console.h"
+#include "Open3D/Registration/AlignTimer.h"
 
 namespace open3d {
 
@@ -239,12 +240,14 @@ RegistrationResult RegistrationRANSACBasedOnCorrespondence(
     return result;
 }
 
-RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
+bool RegistrationRANSACBasedOnFeatureMatching(
         const geometry::PointCloud &source,
         const geometry::PointCloud &target,
         const Feature &source_feature,
         const Feature &target_feature,
         double max_correspondence_distance,
+        const long long timeout,
+        RegistrationResult &result,
         const TransformationEstimation &estimation
         /* = TransformationEstimationPointToPoint(false)*/,
         int ransac_n /* = 4*/,
@@ -253,14 +256,18 @@ RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
         const RANSACConvergenceCriteria &criteria
         /* = RANSACConvergenceCriteria()*/) {
     if (ransac_n < 3 || max_correspondence_distance <= 0.0) {
-        return RegistrationResult();
+        return false;
     }
 
-    RegistrationResult result;
+    AlignTimer timer;
+    timer.SetTraceLimit(timeout);
+    timer.StartSilent();
+    
     int total_validation = 0;
     bool finished_validation = false;
     int num_similar_features = 1;
     std::vector<std::vector<int>> similar_features(source.points_.size());
+    bool iterSuccess = true;
 
 #ifdef _OPENMP
 #pragma omp parallel
@@ -275,7 +282,7 @@ RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
         // each thread has different seed_number
         seed_number = (unsigned int)std::time(0) * (omp_get_thread_num() + 1);
 #else
-    seed_number = (unsigned int)std::time(0);
+        seed_number = (unsigned int)std::time(0);
 #endif
         std::srand(seed_number);
 
@@ -283,6 +290,11 @@ RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
 #pragma omp for nowait
 #endif
         for (int itr = 0; itr < criteria.max_iteration_; itr++) {
+
+            if (timer.IsTraceTimeExceeded()) {
+                iterSuccess = false;
+                continue;
+            }
             if (!finished_validation) {
                 std::vector<double> dists(num_similar_features);
                 Eigen::Matrix4d transformation;
@@ -368,7 +380,7 @@ RegistrationResult RegistrationRANSACBasedOnFeatureMatching(
     utility::PrintDebug("total_validation : %d\n", total_validation);
     utility::PrintDebug("RANSAC: Fitness %.4f, RMSE %.4f\n", result.fitness_,
                         result.inlier_rmse_);
-    return result;
+    return iterSuccess;
 }
 
 Eigen::Matrix6d GetInformationMatrixFromPointClouds(

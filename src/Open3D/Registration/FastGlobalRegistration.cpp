@@ -34,6 +34,7 @@
 #include "Open3D/Registration/Registration.h"
 #include "Open3D/Utility/Console.h"
 #include "Open3D/Utility/Eigen.h"
+#include "Open3D/Registration/AlignTimer.h"
 
 namespace open3d {
 
@@ -233,11 +234,13 @@ std::tuple<std::vector<Eigen::Vector3d>, double, double> NormalizePointCloud(
     return std::make_tuple(pcd_mean_vec, scale_global, scale_start);
 }
 
-Eigen::Matrix4d OptimizePairwiseRegistration(
+bool OptimizePairwiseRegistration(
         const std::vector<geometry::PointCloud>& point_cloud_vec,
         const std::vector<std::pair<int, int>>& corres,
         double scale_start,
-        const FastGlobalRegistrationOption& option) {
+        const FastGlobalRegistrationOption& option,
+        AlignTimer &timer,
+        Eigen::Matrix4d &trans) {
     utility::PrintDebug("Pairwise rigid pose optimization\n");
     double par = scale_start;
     int numIter = option.iteration_number_;
@@ -245,13 +248,14 @@ Eigen::Matrix4d OptimizePairwiseRegistration(
     int i = 0, j = 1;
     geometry::PointCloud point_cloud_copy_j = point_cloud_vec[j];
 
-    if (corres.size() < 10) return Eigen::Matrix4d::Identity();
+    if (corres.size() < 10) return false;
 
     std::vector<double> s(corres.size(), 1.0);
-    Eigen::Matrix4d trans;
-    trans.setIdentity();
 
     for (int itr = 0; itr < numIter; itr++) {
+        if (timer.IsTraceTimeExceeded()) {
+            return false;
+        }
         const int nvariable = 6;
         Eigen::MatrixXd JTJ(nvariable, nvariable);
         Eigen::MatrixXd JTr(nvariable, 1);
@@ -314,7 +318,7 @@ Eigen::Matrix4d OptimizePairwiseRegistration(
             }
         }
     }
-    return trans;
+    return true;
 }
 
 // Below line indicates how the transformation matrix aligns two point clouds
@@ -336,13 +340,20 @@ Eigen::Matrix4d GetTransformationOriginalScale(
 }  // unnamed namespace
 
 namespace registration {
-RegistrationResult FastGlobalRegistration(
+bool FastGlobalRegistration(
         const geometry::PointCloud& source,
         const geometry::PointCloud& target,
         const Feature& source_feature,
         const Feature& target_feature,
+        const long long timeout,
+        RegistrationResult &result,
         const FastGlobalRegistrationOption& option /* =
         FastGlobalRegistrationOption()*/) {
+
+    AlignTimer timer;
+    timer.SetTraceLimit(timeout);
+    timer.StartSilent();
+
     std::vector<geometry::PointCloud> point_cloud_vec;
     point_cloud_vec.push_back(source);
     point_cloud_vec.push_back(target);
@@ -358,15 +369,17 @@ RegistrationResult FastGlobalRegistration(
     std::vector<std::pair<int, int>> corres;
     corres = AdvancedMatching(point_cloud_vec, features_vec, option);
     Eigen::Matrix4d transformation;
-    transformation = OptimizePairwiseRegistration(point_cloud_vec, corres,
-                                                  scale_global, option);
+    transformation.setIdentity();
+    bool success = OptimizePairwiseRegistration(point_cloud_vec, corres,
+                                                  scale_global, option, timer, transformation);
 
     // as the original code T * point_cloud_vec[1] is aligned with
     // point_cloud_vec[0] matrix inverse is applied here.
     // clang-format off
-    return RegistrationResult(GetTransformationOriginalScale(transformation,
+    result = RegistrationResult(GetTransformationOriginalScale(transformation,
                                                              pcd_mean_vec,
                                                              scale_global).inverse());
+    return success;
     // clang-format on
 }
 
